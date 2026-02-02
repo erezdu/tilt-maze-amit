@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rehab Maze - Amit Center</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --wall-color: #2c3e50;
+            --bg-color: #ecf0f1;
+            --goal-color: #27ae60;
+            --ball-color: #e74c3c;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            background-color: var(--bg-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden; /* מניעת גלילה */
+            touch-action: none; /* מניעת זום וכד' */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+            border-radius: 8px;
+            background: white;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* מסכים (פתיחה, ניצחון וכו') */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        img.logo {
+            max-width: 200px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin: 10px 0;
+            font-size: 2rem;
+        }
+
+        p {
+            font-size: 1.2rem;
+            color: #666;
+            margin: 5px 0 20px 0;
+        }
+
+        button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.1s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        /* בקרת רגישות */
+        .controls-container {
+            margin-top: 30px;
+            background: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        .slider-label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        input[type=range] {
+            width: 100%;
+            height: 10px;
+        }
+
+        /* HUD בזמן משחק */
+        #hud {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255,255,255,0.8);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            pointer-events: none;
+            display: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .version {
+            position: absolute;
+            bottom: 5px;
+            right: 10px;
+            font-size: 0.8rem;
+            color: #aaa;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- HUD -->
+    <div id="hud">שלב: <span id="levelDisplay">1</span>/10</div>
+
+    <!-- Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- מסך פתיחה -->
+    <div id="startScreen" class="overlay">
+        <img src="https://static.wixstatic.com/media/223a5d_6f9b1db6d4fd4433962a0bb7db185111~mv2.png/v1/crop/x_0,y_0,w_1000,h_696/fill/w_264,h_182,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/log_recolor.png" alt="לוגו מרכז עמית" class="logo">
+        <h1>משחק שיקום מוטורי</h1>
+        <p>הטו את המכשיר כדי להוביל את הכדור למטרה הירוקה</p>
+        
+        <div class="controls-container">
+            <label class="slider-label" for="sensitivity">רגישות תנועה: <span id="sensValue">5</span></label>
+            <input type="range" id="sensitivity" min="1" max="10" value="5">
+        </div>
+
+        <br>
+        <button id="startBtn">התחל אימון</button>
+        <div class="version">גרסה 1.2</div>
+    </div>
+
+    <!-- מסך סיום שלב -->
+    <div id="levelScreen" class="overlay hidden">
+        <h1>כל הכבוד!</h1>
+        <p>סיימת את השלב בהצלחה.</p>
+        <button id="nextLevelBtn">לשלב הבא</button>
+    </div>
+
+    <!-- מסך סיום משחק -->
+    <div id="winScreen" class="overlay hidden">
+        <h1>סיימת את כל השלבים!</h1>
+        <p>תרגול מצוין להיום.</p>
+        <button id="restartBtn">התחל מחדש</button>
+    </div>
+
+    <script>
+        // --- קונפיגורציה ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // אלמנטים של UI
+        const startScreen = document.getElementById('startScreen');
+        const levelScreen = document.getElementById('levelScreen');
+        const winScreen = document.getElementById('winScreen');
+        const startBtn = document.getElementById('startBtn');
+        const nextLevelBtn = document.getElementById('nextLevelBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const hud = document.getElementById('hud');
+        const levelDisplay = document.getElementById('levelDisplay');
+        const sensitivityInput = document.getElementById('sensitivity');
+        const sensValueSpan = document.getElementById('sensValue');
+
+        // משתני משחק
+        let currentLevel = 0;
+        let sensitivity = 5;
+        let isGameRunning = false;
+        
+        // פיזיקה
+        let ball = { x: 0, y: 0, radius: 0, vx: 0, vy: 0 };
+        let goal = { x: 0, y: 0, width: 0, height: 0 };
+        let walls = [];
+        let tileSize = 0;
+        
+        // נתוני חיישנים
+        let tiltX = 0; // Gamma (שמאל/ימין)
+        let tiltY = 0; // Beta (למעלה/למטה)
+
+        // --- הגדרת השלבים (10 שלבים) ---
+        // 1 = קיר, 0 = דרך, S = התחלה, E = סיום
+        const maps = [
+            // שלב 1: קו ישר (קל מאוד)
+            [
+                "1111111",
+                "1S000E1",
+                "1111111"
+            ],
+            // שלב 2: פנייה אחת (קל)
+            [
+                "111111",
+                "1S0001",
+                "111101",
+                "1E0001",
+                "111111"
+            ],
+            // שלב 3: צורת U
+            [
+                "1111111",
+                "1S01E01",
+                "1001001",
+                "1000001",
+                "1111111"
+            ],
+             // שלב 4: זיגזג רחב
+            [
+                "1111111",
+                "1S00001",
+                "1111101",
+                "1000001",
+                "1011111",
+                "10000E1",
+                "1111111"
+            ],
+            // שלב 5: מבוך פשוט
+            [
+                "11111111",
+                "1S0010E1",
+                "10101011",
+                "10100001",
+                "10111101",
+                "10000001",
+                "11111111"
+            ],
+            // שלב 6: דורש דיוק
+            [
+                "11111111",
+                "1S000001",
+                "11111101",
+                "1E000001",
+                "10111111",
+                "10000001",
+                "11111111"
+            ],
+            // שלב 7
+            [
+                "111111111",
+                "1S0010001",
+                "111010101",
+                "100000101",
+                "101111101",
+                "1000000E1",
+                "111111111"
+            ],
+            // שלב 8
+            [
+                "111111111",
+                "1S01000E1",
+                "100101111",
+                "110000001",
+                "111111101",
+                "100000001",
+                "111111111"
+            ],
+            // שלב 9
+            [
+                "1111111111",
+                "1S00000001",
+                "1111011101",
+                "1000010001",
+                "1011110111",
+                "10000000E1",
+                "1111111111"
+            ],
+            // שלב 10: מבוך צפוף (רגיל)
+            [
+                "11111111111",
+                "1S0100010E1",
+                "10010101011",
+                "10110100001",
+                "10000111101",
+                "11100000001",
+                "11111111111"
+            ]
+        ];
+
+        // --- אתחול וניהול אירועים ---
+
+        sensitivityInput.addEventListener('input', (e) => {
+            sensitivity = parseInt(e.target.value);
+            sensValueSpan.textContent = sensitivity;
+        });
+
+        startBtn.addEventListener('click', () => {
+            initSensorPermission();
+        });
+
+        nextLevelBtn.addEventListener('click', () => {
+            levelScreen.classList.add('hidden');
+            currentLevel++;
+            if (currentLevel < maps.length) {
+                loadLevel(currentLevel);
+            } else {
+                winScreen.classList.remove('hidden');
+            }
+        });
+
+        restartBtn.addEventListener('click', () => {
+            winScreen.classList.add('hidden');
+            currentLevel = 0;
+            loadLevel(currentLevel);
+        });
+
+        // פונקציית בקשת הרשאות (מתוך הקוד שסיפקת, מותאם)
+        function initSensorPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation);
+                            startGame();
+                        } else {
+                            alert("יש לאשר גישה לחיישנים כדי לשחק");
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // אנדרואיד / דפדפן רגיל
+                window.addEventListener('deviceorientation', handleOrientation);
+                startGame();
+            }
+        }
+
+        function handleOrientation(event) {
+            // Beta: קדימה/אחורה (-180 עד 180). משמש לציר Y
+            // Gamma: שמאל/ימין (-90 עד 90). משמש לציר X
+            
+            // הגבלת הזווית כדי שהמשחק לא יהיה מהיר מדי
+            let y = event.beta; 
+            let x = event.gamma;
+
+            if (y > 90) y = 90;
+            if (y < -90) y = -90;
+            
+            // שמירת ערכי הטיה לשימוש בלולאת המשחק
+            tiltX = x || 0;
+            tiltY = y || 0;
+        }
+
+        // --- לוגיקת המשחק ---
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth * 0.95;
+            canvas.height = window.innerHeight * 0.95;
+            // אם אנחנו בתוך משחק, צריך לחשב מחדש את הגדלים
+            if (isGameRunning) {
+                parseMap(maps[currentLevel]);
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function startGame() {
+            startScreen.classList.add('hidden');
+            hud.style.display = 'block';
+            resizeCanvas();
+            isGameRunning = true;
+            loadLevel(0);
+            gameLoop();
+        }
+
+        function loadLevel(levelIndex) {
+            currentLevel = levelIndex;
+            levelDisplay.innerText = currentLevel + 1;
+            
+            // איפוס מהירות
+            ball.vx = 0;
+            ball.vy = 0;
+            tiltX = 0;
+            tiltY = 0;
+
+            parseMap(maps[levelIndex]);
+        }
+
+        function parseMap(mapLayout) {
+            walls = [];
+            const rows = mapLayout.length;
+            const cols = mapLayout[0].length;
+
+            // חישוב גודל כל אריח כך שיתאים למסך
+            const tileW = canvas.width / cols;
+            const tileH = canvas.height / rows;
+            tileSize = Math.min(tileW, tileH); // לוקחים את הקטן כדי לשמור על פרופורציות ריבועיות
+
+            // מרכוז המבוך
+            const offsetX = (canvas.width - (cols * tileSize)) / 2;
+            const offsetY = (canvas.height - (rows * tileSize)) / 2;
+
+            ball.radius = (tileSize / 2) * 0.7; // הכדור קצת קטן יותר מהמסדרון
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const cell = mapLayout[r][c];
+                    const x = offsetX + c * tileSize;
+                    const y = offsetY + r * tileSize;
+
+                    if (cell === '1') {
+                        walls.push({ x: x, y: y, w: tileSize, h: tileSize });
+                    } else if (cell === 'S') {
+                        ball.x = x + tileSize / 2;
+                        ball.y = y + tileSize / 2;
+                    } else if (cell === 'E') {
+                        goal = { x: x, y: y, w: tileSize, h: tileSize };
+                    }
+                }
+            }
+        }
+
+        function update() {
+            if (!isGameRunning) return;
+
+            // חישוב מהירות על בסיס הטיה ורגישות
+            // רגישות נעה בין 1 ל-10. ננרמל אותה.
+            const accelFactor = sensitivity * 0.005; 
+
+            ball.vx += tiltX * accelFactor;
+            ball.vy += tiltY * accelFactor;
+
+            // חיכוך (כדי שהכדור לא יחליק כמו על קרח לנצח)
+            ball.vx *= 0.92;
+            ball.vy *= 0.92;
+
+            // הגבלת מהירות מקסימלית (מונע באגים של מעבר דרך קירות)
+            const maxSpeed = tileSize * 0.4;
+            if (ball.vx > maxSpeed) ball.vx = maxSpeed;
+            if (ball.vx < -maxSpeed) ball.vx = -maxSpeed;
+            if (ball.vy > maxSpeed) ball.vy = maxSpeed;
+            if (ball.vy < -maxSpeed) ball.vy = -maxSpeed;
+
+            // תנועה ותיקון התנגשות - ציר X
+            ball.x += ball.vx;
+            checkWallCollision('x');
+
+            // תנועה ותיקון התנגשות - ציר Y
+            ball.y += ball.vy;
+            checkWallCollision('y');
+
+            // בדיקת ניצחון
+            checkWin();
+        }
+
+        function checkWallCollision(axis) {
+            for (let wall of walls) {
+                if (circleRectCollision(ball.x, ball.y, ball.radius, wall.x, wall.y, wall.w, wall.h)) {
+                    if (axis === 'x') {
+                        // תיקון מיקום ואיפוס מהירות
+                        if (ball.vx > 0) ball.x = wall.x - ball.radius;
+                        else if (ball.vx < 0) ball.x = wall.x + wall.w + ball.radius;
+                        ball.vx = -ball.vx * 0.3; // הקפצה קטנה מהקיר
+                    } else {
+                        if (ball.vy > 0) ball.y = wall.y - ball.radius;
+                        else if (ball.vy < 0) ball.y = wall.y + wall.h + ball.radius;
+                        ball.vy = -ball.vy * 0.3; // הקפצה קטנה
+                    }
+                }
+            }
+        }
+
+        // בדיקה גסה אם עיגול נוגע במלבן
+        function circleRectCollision(cx, cy, r, rx, ry, rw, rh) {
+            // מציאת הנקודה הקרובה ביותר במלבן למרכז העיגול
+            let testX = cx;
+            let testY = cy;
+
+            if (cx < rx) testX = rx;
+            else if (cx > rx + rw) testX = rx + rw;
+
+            if (cy < ry) testY = ry;
+            else if (cy > ry + rh) testY = ry + rh;
+
+            let distX = cx - testX;
+            let distY = cy - testY;
+            let distance = Math.sqrt((distX * distX) + (distY * distY));
+
+            return distance <= r;
+        }
+
+        function checkWin() {
+            // בדיקה אם הכדור כולו (או מרכזו) בתוך אזור הסיום
+            // כאן נבדוק אם מרכז הכדור נמצא בתוך ריבוע המטרה
+            if (ball.x > goal.x && ball.x < goal.x + goal.w &&
+                ball.y > goal.y && ball.y < goal.y + goal.h) {
+                
+                // עצירת המשחק וסיום שלב
+                // ניתן להוסיף השהייה קטנה לפני הקפצת המסך
+                levelScreen.classList.remove('hidden');
+                
+                // הרחקה מאזור המטרה כדי שלא יקפוץ שוב מייד
+                ball.x = -1000; 
+            }
+        }
+
+        function draw() {
+            // נקה מסך
+            ctx.fillStyle = '#ecf0f1';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // צייר קירות
+            ctx.fillStyle = '#2c3e50';
+            for (let wall of walls) {
+                // הוספת צל לקירות לתחושת עומק
+                ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+                // אפקט תלת מימד פשוט (קונטור בהיר למעלה ושמאל)
+                ctx.strokeStyle = '#34495e';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+            }
+
+            // צייר מטרה
+            ctx.fillStyle = '#27ae60'; // ירוק
+            ctx.beginPath();
+            ctx.fillRect(goal.x + 2, goal.y + 2, goal.w - 4, goal.h - 4);
+            
+            // סימון טקסטואלי למטרה (אופציונלי)
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold ' + (tileSize/3) + 'px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("סיום", goal.x + goal.w/2, goal.y + goal.h/2);
+
+            // צייר כדור
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#e74c3c'; // אדום
+            ctx.fill();
+            // ברק על הכדור
+            ctx.beginPath();
+            ctx.arc(ball.x - ball.radius * 0.3, ball.y - ball.radius * 0.3, ball.radius * 0.3, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.fill();
+            
+            ctx.closePath();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            if (isGameRunning) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+    </script>
+</body>
+</html>
